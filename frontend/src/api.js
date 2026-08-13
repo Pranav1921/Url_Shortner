@@ -5,7 +5,11 @@ const ENDPOINT = import.meta.env.VITE_SHORTEN_ENDPOINT || "/api/shorten";
 
 export async function shortenUrl(url) {
   try {
-    const response = await axios.post(`${API_URL}${ENDPOINT}`, {
+    // Strip trailing slash from API_URL and leading slash from ENDPOINT to construct a clean URL
+    const cleanApiUrl = API_URL.replace(/\/$/, "");
+    const cleanEndpoint = ENDPOINT.replace(/^\//, "");
+
+    const response = await axios.post(`${cleanApiUrl}/${cleanEndpoint}`, {
       originalUrl: url,
     }, {
       headers: {
@@ -15,6 +19,7 @@ export async function shortenUrl(url) {
 
     const data = response.data;
 
+    // Check all possible return keys from backend
     const shortUrl =
       data.shortUrl ||
       data.shortURL ||
@@ -30,7 +35,7 @@ export async function shortenUrl(url) {
     return {
       shortUrl: shortUrl.startsWith("http")
         ? shortUrl
-        : `${API_URL.replace(/\/$/, "")}/${shortUrl.replace(/^\//, "")}`,
+        : `${cleanApiUrl}/${shortUrl.replace(/^\//, "")}`,
       raw: data,
     };
   } catch (error) {
