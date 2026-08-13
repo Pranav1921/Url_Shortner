@@ -8,19 +8,23 @@ dotenv.config();
 const { Pool } = pkg;
 
 const app = express();
+
+// Enable CORS for frontend communication
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
-app.use(cors());
 
 // PostgreSQL Connection Pool
+// Defaults to container hostname 'database' inside the Docker network
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: process.env.DATABASE_URL || 'postgres://postgres:your_password@database:5432/url_shortener',
 });
 
-pool.connect()
-  .then(() => console.log('Connected to PostgreSQL database successfully!'))
-  .catch(err => console.error('PostgreSQL Connection Error:', err.stack));
-
-// Create URL table automatically if it doesn't exist
+// Auto-create URL table on boot
 const initDb = async () => {
   try {
     await pool.query(`
@@ -37,21 +41,50 @@ const initDb = async () => {
     console.error('Error creating table:', err);
   }
 };
-initDb();
 
-// 1. Shorten URL Endpoint (Supports custom word codes & random fallback)
+// Retry PostgreSQL connection until container/DNS is fully ready
+const connectWithRetry = async (retries = 5, delay = 3000) => {
+  while (retries) {
+    try {
+      await pool.connect();
+      console.log('Connected to PostgreSQL database successfully!');
+      await initDb();
+      break;
+    } catch (err) {
+      console.error(`PostgreSQL Connection Error (retries left: ${retries - 1}):`, err.message);
+      retries -= 1;
+      if (retries === 0) process.exit(1);
+      await new Promise(res => setTimeout(res, delay));
+    }
+  }
+};
+
+connectWithRetry();
+
+// 0. Root Health Check Endpoint
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    message: 'URL Shortener API is running successfully!'
+  });
+});
+
+// 1. Shorten URL Endpoint
 app.post('/api/shorten', async (req, res) => {
-  const { originalUrl, customCode } = req.body;
+  let { originalUrl, customCode } = req.body;
 
   if (!originalUrl) {
     return res.status(400).json({ error: 'Original URL is required' });
   }
 
+  // Prepend http:// if standard protocol is missing
+  if (!/^https?:\/\//i.test(originalUrl)) {
+    originalUrl = 'http://' + originalUrl;
+  }
+
   try {
-    // Use custom word if provided, otherwise generate a 6-character random code
     const shortCode = customCode && customCode.trim() !== '' ? customCode.trim() : nanoid(6);
 
-    // Check if the short code already exists in PostgreSQL
     const existing = await pool.query('SELECT * FROM urls WHERE short_code = $1', [shortCode]);
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'This short code is already taken. Try another one.' });
@@ -76,13 +109,30 @@ app.post('/api/shorten', async (req, res) => {
   }
 });
 
-// 2. Redirect Endpoint
+// 2. Fetch Stats Endpoint
+app.get('/api/stats/:shortCode', async (req, res) => {
+  const { shortCode } = req.params;
+
+  try {
+    const result = await pool.query('SELECT * FROM urls WHERE short_code = $1', [shortCode]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Short URL not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error fetching stats:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// 3. Redirect Endpoint (Catch-all route, must remain at bottom)
 app.get('/:shortCode', async (req, res) => {
   const { shortCode } = req.params;
 
   try {
     const result = await pool.query(
-      'SELECT original_url, clicks FROM urls WHERE short_code = $1',
+      'SELECT original_url FROM urls WHERE short_code = $1',
       [shortCode]
     );
 
@@ -92,7 +142,7 @@ app.get('/:shortCode', async (req, res) => {
 
     const urlData = result.rows[0];
 
-    // Increment click count
+    // Increment click counter
     await pool.query(
       'UPDATE urls SET clicks = clicks + 1 WHERE short_code = $1',
       [shortCode]

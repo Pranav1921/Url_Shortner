@@ -4,7 +4,8 @@ import { shortenUrl } from "./api";
 
 function isValidUrl(value) {
   try {
-    const parsed = new URL(value);
+    const urlToTest = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    const parsed = new URL(urlToTest);
     return parsed.protocol === "http:" || parsed.protocol === "https:";
   } catch {
     return false;
@@ -32,7 +33,7 @@ export default function App() {
     }
 
     if (!isValidUrl(trimmed)) {
-      setError("Enter a valid URL starting with http:// or https://");
+      setError("Please enter a valid web address.");
       return;
     }
 
@@ -62,7 +63,7 @@ export default function App() {
       <nav className="nav">
         <div className="brand">
           <span className="brand-icon"><Scissors size={18} strokeWidth={2.5} /></span>
-          <span>Shortly</span>
+          <span>URL-Shortner</span>
         </div>
         <span className="nav-pill">Simple URL Shortener</span>
       </nav>
@@ -86,7 +87,7 @@ export default function App() {
               value={url}
               onChange={(event) => setUrl(event.target.value)}
               placeholder="Paste your long URL here..."
-              type="url"
+              type="text"
               aria-label="Long URL"
             />
             <button className="submit-btn" disabled={loading} type="submit">
