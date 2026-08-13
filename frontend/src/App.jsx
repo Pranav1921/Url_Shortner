@@ -4,7 +4,7 @@ import { shortenUrl } from "./api";
 
 function isValidUrl(value) {
   try {
-    const urlToTest = /^https?:\/\//i.test(value) ? value : `http://${value}`;
+    const urlToTest = /^https?:\/\//i.test(value) ? value : `https://${value}`;
     const parsed = new URL(urlToTest);
     return parsed.protocol === "http:" || parsed.protocol === "https:";
   } catch {

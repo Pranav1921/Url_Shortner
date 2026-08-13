@@ -19,7 +19,6 @@ app.use(cors({
 app.use(express.json());
 
 // PostgreSQL Connection Pool
-// Defaults to container hostname 'database' inside the Docker network
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgres://postgres:your_password@database:5432/url_shortener',
 });
@@ -42,7 +41,7 @@ const initDb = async () => {
   }
 };
 
-// Retry PostgreSQL connection until container/DNS is fully ready
+// Retry PostgreSQL connection until ready
 const connectWithRetry = async (retries = 5, delay = 3000) => {
   while (retries) {
     try {
@@ -77,21 +76,35 @@ app.post('/api/shorten', async (req, res) => {
     return res.status(400).json({ error: 'Original URL is required' });
   }
 
-  // Prepend http:// if standard protocol is missing
+  originalUrl = originalUrl.trim();
+
+  // Prepend https:// if standard protocol is missing
   if (!/^https?:\/\//i.test(originalUrl)) {
-    originalUrl = 'http://' + originalUrl;
+    originalUrl = 'https://' + originalUrl;
   }
 
   try {
-    const shortCode = customCode && customCode.trim() !== '' ? customCode.trim() : nanoid(6);
+    const baseUrl = process.env.BASE_URL || 'http://localhost:5000';
 
-    const existing = await pool.query('SELECT * FROM urls WHERE short_code = $1', [shortCode]);
-    if (existing.rows.length > 0) {
-      return res.status(400).json({ error: 'This short code is already taken. Try another one.' });
+    // Return existing code if URL was already shortened (and no custom code requested)
+    if (!customCode) {
+      const existingUrl = await pool.query('SELECT short_code FROM urls WHERE original_url = $1', [originalUrl]);
+      if (existingUrl.rows.length > 0) {
+        const shortCode = existingUrl.rows[0].short_code;
+        return res.status(200).json({
+          originalUrl,
+          shortCode,
+          shortUrl: `${baseUrl}/${shortCode}`
+        });
+      }
     }
 
-    const baseUrl = process.env.BASE_URL || 'http://localhost:5000';
-    const shortUrl = `${baseUrl}/${shortCode}`;
+    const shortCode = customCode && customCode.trim() !== '' ? customCode.trim() : nanoid(6);
+
+    const existingCode = await pool.query('SELECT * FROM urls WHERE short_code = $1', [shortCode]);
+    if (existingCode.rows.length > 0) {
+      return res.status(400).json({ error: 'This short code is already taken. Try another one.' });
+    }
 
     await pool.query(
       'INSERT INTO urls (original_url, short_code) VALUES ($1, $2)',
@@ -101,7 +114,7 @@ app.post('/api/shorten', async (req, res) => {
     res.status(201).json({
       originalUrl,
       shortCode,
-      shortUrl
+      shortUrl: `${baseUrl}/${shortCode}`
     });
   } catch (err) {
     console.error('Error saving URL:', err);
@@ -126,7 +139,7 @@ app.get('/api/stats/:shortCode', async (req, res) => {
   }
 });
 
-// 3. Redirect Endpoint (Catch-all route, must remain at bottom)
+// 3. Redirect Endpoint (Catch-all route)
 app.get('/:shortCode', async (req, res) => {
   const { shortCode } = req.params;
 
