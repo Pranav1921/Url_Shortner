@@ -11,12 +11,13 @@
 * **Frontend**: React / Client Interface
 * **Backend**: Node.js, Express, Nanoid
 * **Database**: PostgreSQL
-* **Containerization**: Docker & Docker Compose[cite: 1]
+* **Containerization**: Docker & Docker Compose
 
 ---
 
-## Environment Variables
-Create a `.env` file in the backend directory (or reference the `.env.example` template) using the following configuration[cite: 1]:
+## ⚙️ Environment Variables
+
+Create a `.env` file in the **backend** directory using the following template:
 
 ```env
 PORT=5000
